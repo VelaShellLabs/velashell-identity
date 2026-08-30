@@ -1,0 +1,20 @@
+[Bb]in/
+[Oo]bj/
+node_modules/
+dist/
+.umi/
+.umi-production/
+packages/*.nupkg
+.env
+# 令牌签名/加密密钥。本机跑认证服务时会生成在项目目录下,提交上去等于把签发身份公开。
+src/VelaShell.Market.Identity/keys/
+*.key
+*.user
+.vs/
+.idea/
+TestResults/
+/.omo/*
+.omc
+/artifacts
+# 镜像导出产物(build/Export-Images.ps1),一百多 MB 一个,不进仓库。
+build/*.tar

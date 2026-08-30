@@ -1,0 +1,98 @@
+# VelaShell 统一认证服务(OIDC / OpenIddict + MongoDB)。
+#
+# 这份 compose **自带一个 MongoDB**,于是本仓库能独立跑起来 —— 拆分之前它依赖
+# 插件市场的副本集,而一个信任根不该非得先起一整套业务系统才能开发。
+#
+# 生产上通常不用这里的 mongo:把 ConnectionStrings__Mongo 指向共享的副本集即可
+# (库名仍是 velashell-identity)。
+#
+# 下游服务(velashell-markets / velashell-feeds)通过 extra_hosts + host-gateway
+# 连到本服务对外暴露的端口。
+
+services:
+  mongo:
+    image: mongo:8
+    container_name: identity-mongo
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-identity}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-change-me-please}
+    volumes:
+      - identity-mongo-data:/data/db
+    ports:
+      - "${MONGO_PORT:-27020}:27017"
+    healthcheck:
+      # OpenIddict 的部分操作要事务,而事务要求副本集 —— 单节点副本集就够,
+      # 但必须真的 initiate 过,否则驱动会一直处在 "Type: Unknown" 的状态。
+      test: >
+        mongosh --quiet
+        -u ${MONGO_ROOT_USER:-identity} -p ${MONGO_ROOT_PASSWORD:-change-me-please}
+        --authenticationDatabase admin
+        --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  identity:
+    build:
+      context: .
+      dockerfile: build/identity.Dockerfile
+    image: velashell-identity:local
+    container_name: velashell-identity
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      - TZ=Asia/Chongqing
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ASPNETCORE_HTTP_PORTS=8080
+      # ⚠️ 库名 velashell-identity 是账号所在地,**改了等于所有账号消失**。
+      - ConnectionStrings__Mongo=${MONGO_CONNECTION:-mongodb://${MONGO_ROOT_USER:-identity}:${MONGO_ROOT_PASSWORD:-change-me-please}@mongo:27017/velashell-identity?authSource=admin&replicaSet=rs0}
+      # ⚠️ issuer 必须是**浏览器能打开**的地址,而且**改了所有已发出的令牌立刻失效**,
+      # 下游每个服务的 Auth__Issuer 都要跟着改。
+      - Identity__Issuer=${IDENTITY_ISSUER:-http://localhost:7020}
+      - Identity__RequireHttps=${IDENTITY_REQUIRE_HTTPS:-false}
+      - Identity__KeyDirectory=/app/keys
+      # ---- 下游客户端与 API 资源 ----
+      # 客户端与 scope 不需要手工写库:本服务每次启动都按配置覆盖进 MongoDB,
+      # 于是"改配置 → 重启"是唯一的管理方式,不会出现配置与库不一致的第三种状态。
+      # 新接一个服务 = 在这里加一组 Clients__N__* 与 Resources__N__*。
+      # 配置节是 Scopes(每项内部才有 Resources,那是令牌 aud)。写成 Identity__Resources__ 不生效,
+      # 症状是下游一发起登录就被回 invalid_scope。
+      - Identity__Scopes__0__Name=velashell-market
+      - Identity__Scopes__0__DisplayName=VelaShell 插件市场
+      - Identity__Scopes__0__Resources__0=velashell-market
+      - Identity__Scopes__1__Name=velashell-feeds
+      - Identity__Scopes__1__DisplayName=VelaShell 资讯服务
+      - Identity__Scopes__1__Resources__0=velashell-feeds
+      # 插件市场前端(公开客户端,浏览器里没地方藏密钥,靠 PKCE)
+      - Identity__Clients__0__ClientId=velashell-market-web
+      - Identity__Clients__0__DisplayName=VelaShell 插件市场
+      - Identity__Clients__0__RedirectUris__0=${MARKET_WEB_ORIGIN:-http://localhost:8000}/callback
+      - Identity__Clients__0__PostLogoutRedirectUris__0=${MARKET_WEB_ORIGIN:-http://localhost:8000}
+      - Identity__Clients__0__Scopes__0=velashell-market
+      # 资讯服务管理台(有后端的机密客户端)
+      - Identity__Clients__1__ClientId=velashell-feeds-admin
+      - Identity__Clients__1__DisplayName=VelaShell 资讯服务
+      - Identity__Clients__1__ClientSecret=${FEEDS_CLIENT_SECRET:-}
+      - Identity__Clients__1__RedirectUris__0=${FEEDS_ORIGIN:-http://localhost:7030}/signin-oidc
+      - Identity__Clients__1__PostLogoutRedirectUris__0=${FEEDS_ORIGIN:-http://localhost:7030}/
+      - Identity__Clients__1__Scopes__0=velashell-feeds
+      # ---- 账号 ----
+      - Accounts__AllowSelfRegistration=${ALLOW_SELF_REGISTRATION:-true}
+      # 首个账号:只在账号集合为空时创建。留空则去 /account/register 自助注册。
+      - Accounts__Bootstrap__UserName=${BOOTSTRAP_USER:-}
+      - Accounts__Bootstrap__Password=${BOOTSTRAP_PASSWORD:-}
+    volumes:
+      # ⚠️ 签名与加密密钥。**丢了等于换签发者**:所有已发出的令牌一起失效,所有人被登出。
+      # 这个卷要进备份清单。
+      - identity-keys:/app/keys
+    ports:
+      - "${IDENTITY_PORT:-7020}:8080"
+
+volumes:
+  identity-mongo-data:
+  identity-keys:

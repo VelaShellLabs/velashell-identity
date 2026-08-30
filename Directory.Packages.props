@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- OIDC 服务端。7.x 是稳定版,8.0 仍在 preview —— 但这里是整个生态的**信任根**,
+         版本选择应当是一次明确的决定,而不是每次还原的意外。与拆分前保持一致。 -->
+    <PackageVersion Include="OpenIddict.AspNetCore" Version="8.0.0-preview.2.26365.61" />
+    <PackageVersion Include="OpenIddict.MongoDb" Version="8.0.0-preview.2.26365.61" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageVersion Include="MongoDB.Driver" Version="3.11.0" />
+    <PackageVersion Include="Serilog.AspNetCore" Version="10.0.1-dev-02312" />
+  </ItemGroup>
+</Project>
