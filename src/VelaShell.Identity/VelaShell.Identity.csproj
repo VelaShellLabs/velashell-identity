@@ -3,12 +3,15 @@
   <PropertyGroup>
     <RootNamespace>VelaShell.Identity</RootNamespace>
     <UserSecretsId>velashell-market-identity</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerfileContext>..\..</DockerfileContext>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- OpenIddict:OIDC 服务端(授权码 + PKCE)与 MongoDB 存储。
          口令散列用的 PasswordHasher<T> 在 ASP.NET Core 共享框架里
          (Microsoft.Extensions.Identity.Core),不需要额外的包。 -->
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
     <PackageReference Include="OpenIddict.AspNetCore" />
     <PackageReference Include="OpenIddict.MongoDb" />
     <PackageReference Include="MongoDB.Driver" />

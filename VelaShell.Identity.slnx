@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VelaShell.Identity/VelaShell.Identity.csproj" />
   </Folder>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
 </Solution>
