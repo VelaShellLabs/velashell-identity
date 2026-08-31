@@ -10,6 +10,7 @@ using Serilog;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 using VelaShell.Identity.Accounts;
 using VelaShell.Identity.Endpoints;
+using VelaShell.Identity.Mail;
 using VelaShell.Identity.Options;
 using VelaShell.Identity.Security;
 using VelaShell.Identity.Seeding;
@@ -28,6 +29,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 builder.Services.Configure<AccountOptions>(builder.Configuration.GetSection(AccountOptions.SectionName));
+builder.Services.Configure<MailOptions>(builder.Configuration.GetSection(MailOptions.SectionName));
 IdentityServerOptions server = builder.Configuration.GetSection(IdentityServerOptions.SectionName)
                                       .Get<IdentityServerOptions>() ?? new();
 
@@ -51,6 +53,8 @@ string databaseName = string.IsNullOrEmpty(mongoUrl.DatabaseName) ? "velashell-i
 builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient(mongoUrl));
 builder.Services.AddSingleton(provider => provider.GetRequiredService<IMongoClient>().GetDatabase(databaseName));
 builder.Services.AddScoped<AccountStore>();
+builder.Services.AddScoped<PasswordResetStore>();
+builder.Services.AddSingleton<EmailSender>();
 
 // ---- 签名与加密密钥 ----------------------------------------------------------
 // 在容器建好之前就要准备好:OpenIddict 的服务端配置需要密钥实例。

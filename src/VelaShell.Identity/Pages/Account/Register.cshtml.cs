@@ -74,10 +74,11 @@ public sealed class RegisterModel(AccountStore accounts, IOptions<AccountOptions
         [Display(Name = "显示名")]
         public string? DisplayName { get; set; }
 
-        /// <summary>邮箱,可留空。</summary>
+        /// <summary>邮箱,必填 —— 它是自助找回口令的唯一凭据。</summary>
+        [Required(ErrorMessage = "请填写邮箱。")]
         [EmailAddress(ErrorMessage = "邮箱格式不对。")]
         [Display(Name = "邮箱")]
-        public string? Email { get; set; }
+        public string Email { get; set; } = "";
 
         /// <summary>口令。</summary>
         [Required(ErrorMessage = "请填写口令。")]

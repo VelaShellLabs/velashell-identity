@@ -31,6 +31,10 @@ public sealed class LoginModel(AccountStore accounts, IOptions<AccountOptions> o
     /// <summary>是否开放自助注册,决定要不要露出注册入口。</summary>
     public bool AllowRegistration => options.Value.AllowSelfRegistration;
 
+    /// <summary>刚刚通过邮件链接重置完口令 —— 重置页把人送回来时带上它,好给一句交代。</summary>
+    [BindProperty(SupportsGet = true)]
+    public bool Reset { get; set; }
+
     /// <summary>渲染登录页。</summary>
     public void OnGet()
     {

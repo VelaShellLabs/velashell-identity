@@ -10,6 +10,9 @@
     <PackageVersion Include="OpenIddict.MongoDb" Version="8.0.0-preview.2.26365.61" />
   </ItemGroup>
   <ItemGroup>
+    <!-- 发信(找回口令)。不用 System.Net.Mail.SmtpClient:它与真实服务商的 STARTTLS
+         协商经常谈不拢,微软自己的文档也不推荐新代码用它。 -->
+    <PackageVersion Include="MailKit" Version="4.17.0" />
     <PackageVersion Include="MongoDB.Driver" Version="3.11.0" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.1-dev-02312" />
   </ItemGroup>

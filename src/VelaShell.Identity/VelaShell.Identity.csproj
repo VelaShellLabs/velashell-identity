@@ -14,6 +14,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
     <PackageReference Include="OpenIddict.AspNetCore" />
     <PackageReference Include="OpenIddict.MongoDb" />
+    <PackageReference Include="MailKit" />
     <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="Serilog.AspNetCore" />
   </ItemGroup>

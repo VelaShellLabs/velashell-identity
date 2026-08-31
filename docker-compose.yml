@@ -84,8 +84,23 @@ services:
       # ---- 账号 ----
       - Accounts__AllowSelfRegistration=${ALLOW_SELF_REGISTRATION:-true}
       # 首个账号:只在账号集合为空时创建。留空则去 /account/register 自助注册。
+      # 三项要么都填要么都不填 —— 邮箱是必填项,漏了这一条账号建不出来,
+      # 启动日志里会留下一句"首个账号 xxx 没建成:请填写邮箱。"。
       - Accounts__Bootstrap__UserName=${BOOTSTRAP_USER:-}
       - Accounts__Bootstrap__Password=${BOOTSTRAP_PASSWORD:-}
+      - Accounts__Bootstrap__Email=${BOOTSTRAP_EMAIL:-}
+      # ---- 发信(找回口令)----
+      # MAIL_HOST 留空 = 本部署不发信,找回口令页会直说"没开通,请联系管理员",
+      # 而不是假装发出了一封信让人干等。
+      # 端口:587 配 MAIL_IMPLICIT_TLS=false(STARTTLS),465 配 true(隐式 TLS)。
+      # MAIL_PASSWORD 在多数邮箱服务商那里要填的是「授权码」,不是登录口令。
+      - Mail__Host=${MAIL_HOST:-}
+      - Mail__Port=${MAIL_PORT:-587}
+      - Mail__UseImplicitTls=${MAIL_IMPLICIT_TLS:-false}
+      - Mail__UserName=${MAIL_USER:-}
+      - Mail__Password=${MAIL_PASSWORD:-}
+      - Mail__FromAddress=${MAIL_FROM:-}
+      - Mail__FromName=${MAIL_FROM_NAME:-VelaShell 统一认证}
     volumes:
       # ⚠️ 签名与加密密钥。**丢了等于换签发者**:所有已发出的令牌一起失效,所有人被登出。
       # 这个卷要进备份清单。

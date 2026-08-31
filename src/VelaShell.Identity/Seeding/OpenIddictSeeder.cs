@@ -183,6 +183,9 @@ public sealed class OpenIddictSeeder(
     {
         AccountStore store = provider.GetRequiredService<AccountStore>();
         await store.EnsureIndexesAsync(cancel);
+        // 找回口令的令牌集合:唯一索引 + TTL 自动清理。放在这里而不是首次发信时建 ——
+        // 索引缺席时 TTL 不生效,过期令牌会**一直**留在库里,而那正是最不该积压的东西。
+        await provider.GetRequiredService<PasswordResetStore>().EnsureIndexesAsync(cancel);
 
         if (!await store.IsEmptyAsync(cancel))
         {

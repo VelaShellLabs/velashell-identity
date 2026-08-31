@@ -79,8 +79,9 @@ else
                 <span>邮箱</span>
                 <span class="control">
                     @await Html.PartialAsync("_Icon", "mail")
-                    <input asp-for="Input.Email" type="email" autocomplete="email" placeholder="可留空" />
+                    <input asp-for="Input.Email" type="email" autocomplete="email" required placeholder="you@example.com" />
                 </span>
+                <span class="hint">找回口令用,也可以代替用户名登录</span>
                 <span asp-validation-for="Input.Email" class="field-error"></span>
             </label>
         </div>
