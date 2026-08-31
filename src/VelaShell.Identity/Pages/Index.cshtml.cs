@@ -32,6 +32,12 @@ public sealed class IndexModel(AccountStore accounts, IOptions<AccountOptions> o
     /// <summary>改口令是否刚刚成功。</summary>
     public bool PasswordChanged { get; private set; }
 
+    /// <summary>改资料的失败原因。与改口令分开:两个表单在同一页上,错误不该串台。</summary>
+    public string? ProfileError { get; private set; }
+
+    /// <summary>资料是否刚刚保存成功。</summary>
+    public bool ProfileSaved { get; private set; }
+
     /// <summary>是否开放自助注册。</summary>
     public bool AllowRegistration => options.Value.AllowSelfRegistration;
 
@@ -43,13 +49,55 @@ public sealed class IndexModel(AccountStore accounts, IOptions<AccountOptions> o
     [BindProperty]
     public string NewPassword { get; set; } = "";
 
-    /// <summary>渲染页面。</summary>
-    public async Task OnGetAsync(CancellationToken cancel) => await LoadAsync(cancel);
+    /// <summary>资料表单:邮箱。</summary>
+    [BindProperty]
+    public string ProfileEmail { get; set; } = "";
 
-    /// <summary>改口令。旧口令必须对得上,否则一张被顺走的 cookie 就能顶掉账号。</summary>
-    public async Task<IActionResult> OnPostAsync(CancellationToken cancel)
+    /// <summary>资料表单:显示名。</summary>
+    [BindProperty]
+    public string? ProfileDisplayName { get; set; }
+
+    /// <summary>渲染页面。</summary>
+    public async Task OnGetAsync(CancellationToken cancel)
     {
         await LoadAsync(cancel);
+        FillProfileForm();
+    }
+
+    /// <summary>
+    /// 改资料(显示名 + 邮箱)。不要旧口令 —— 这不是凭据变更,
+    /// 而且能走到这里的人已经握着一张有效会话了。
+    /// </summary>
+    public async Task<IActionResult> OnPostProfileAsync(CancellationToken cancel)
+    {
+        await LoadAsync(cancel);
+        if (Account is null)
+        {
+            return RedirectToPage("/Account/Login");
+        }
+
+        RegistrationResult result = await accounts.UpdateProfileAsync(Account, ProfileEmail, ProfileDisplayName, cancel);
+        if (!result.Succeeded)
+        {
+            ProfileError = result.Error;
+            return Page();
+        }
+
+        // 会话 cookie 里带着 name 声明,显示名改了就得重签,否则页面顶上还挂着旧名字。
+        // 这里不换安全戳,所以别的设备**不会**被踢下线 —— 改昵称不该有那种后果。
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
+            SessionPrincipal.Create(Account),
+            new AuthenticationProperties { IsPersistent = true, IssuedUtc = DateTimeOffset.UtcNow });
+        ProfileSaved = true;
+        FillProfileForm();
+        return Page();
+    }
+
+    /// <summary>改口令。旧口令必须对得上,否则一张被顺走的 cookie 就能顶掉账号。</summary>
+    public async Task<IActionResult> OnPostPasswordAsync(CancellationToken cancel)
+    {
+        await LoadAsync(cancel);
+        FillProfileForm();
         if (Account is null)
         {
             return RedirectToPage("/Account/Login");
@@ -74,6 +122,17 @@ public sealed class IndexModel(AccountStore accounts, IOptions<AccountOptions> o
             new AuthenticationProperties { IsPersistent = true, IssuedUtc = DateTimeOffset.UtcNow });
         PasswordChanged = true;
         return Page();
+    }
+
+    /// <summary>把库里的值填进资料表单。POST 失败重渲染时不覆盖用户刚敲的内容。</summary>
+    private void FillProfileForm()
+    {
+        if (Account is null || ProfileError is not null)
+        {
+            return;
+        }
+        ProfileEmail = Account.Email ?? "";
+        ProfileDisplayName = Account.DisplayName;
     }
 
     private async Task LoadAsync(CancellationToken cancel)

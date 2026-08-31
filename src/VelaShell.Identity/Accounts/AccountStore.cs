@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using VelaShell.Identity.Options;
 
@@ -48,19 +49,63 @@ public sealed partial class AccountStore(IMongoDatabase database, IOptions<Accou
     [GeneratedRegex(@"^[a-zA-Z0-9_.\-]{3,32}$")]
     private static partial Regex UserNamePattern { get; }
 
+    /// <summary>邮箱唯一索引的名字。建立与迁移两处都要用,拎出来避免抄错。</summary>
+    private const string EmailIndexName = "ux_account_email";
+
     /// <summary>建立唯一索引。用户名与邮箱的唯一性由**数据库**保证,不靠应用层的"先查再插"。</summary>
     public async Task EnsureIndexesAsync(CancellationToken cancel = default)
     {
+        await DropLegacySparseEmailIndexAsync(cancel);
         await _accounts.Indexes.CreateManyAsync(
         [
             new CreateIndexModel<IdentityAccount>(
                 Builders<IdentityAccount>.IndexKeys.Ascending(a => a.NormalizedUserName),
                 new CreateIndexOptions { Name = "ux_account_username", Unique = true }),
-            // 邮箱可以不填,所以这条索引必须是稀疏的 —— 否则第二个不填邮箱的账号会撞 null 的唯一约束。
+            // 用 partial 而不是 sparse。**这不是风格问题**:sparse 只跳过"字段不存在"的文档,
+            // 字段存在但值为 null 的照样进索引 —— 而 C# 的 string? 恰恰会把 null 写进库。
+            // 早先那条 sparse 索引就是这么让第二个不填邮箱的账号撞上重复键的。
+            // 邮箱现在已是必填,新账号不会再有 null;这条 partial 仍然留着,
+            // 一来让改必填之前遗留的 null 账号不互相打架,二来这个约束的语义本来就是
+            // "只约束真正填了邮箱的账号",写清楚比依赖"反正不会有 null"更牢靠。
             new CreateIndexModel<IdentityAccount>(
                 Builders<IdentityAccount>.IndexKeys.Ascending(a => a.NormalizedEmail),
-                new CreateIndexOptions { Name = "ux_account_email", Unique = true, Sparse = true })
+                new CreateIndexOptions<IdentityAccount>
+                {
+                    Name = EmailIndexName,
+                    Unique = true,
+                    PartialFilterExpression = Builders<IdentityAccount>.Filter.Type(a => a.NormalizedEmail, BsonType.String)
+                })
         ], cancel);
+    }
+
+    /// <summary>
+    /// 把老部署上那条 sparse 邮箱索引换掉。
+    ///
+    /// 同名索引只要选项对不上,<c>CreateMany</c> 就直接抛 <c>IndexKeySpecsConflict</c>,
+    /// 而这个方法是启动播种时 await 的 —— 不先删,已经跑过的部署会**卡在启动阶段起不来**。
+    /// 判据用"有没有 partialFilterExpression",而不是去比 sparse 标志:
+    /// 只要不是我们要的那条就重建,将来再改选项也不用回来改这里。
+    /// </summary>
+    private async Task DropLegacySparseEmailIndexAsync(CancellationToken cancel)
+    {
+        List<BsonDocument> existing;
+        try
+        {
+            using IAsyncCursor<BsonDocument> cursor = await _accounts.Indexes.ListAsync(cancel);
+            existing = await cursor.ToListAsync(cancel);
+        }
+        catch (MongoCommandException)
+        {
+            // 集合还不存在(全新部署),没有索引可迁移。
+            return;
+        }
+
+        BsonDocument? email = existing.Find(i => i.GetValue("name", "").AsString == EmailIndexName);
+        if (email is null || email.Contains("partialFilterExpression"))
+        {
+            return;
+        }
+        await _accounts.Indexes.DropOneAsync(EmailIndexName, cancel);
     }
 
     /// <summary>按 <c>sub</c> 取账号。</summary>
@@ -81,11 +126,11 @@ public sealed partial class AccountStore(IMongoDatabase database, IOptions<Accou
             new CountOptions { Limit = 1 }, cancel) == 0;
 
     /// <summary>注册一个账号。用户名/邮箱重复由唯一索引挡下,这里把写冲突翻译成可读的提示。</summary>
-    public async Task<RegistrationResult> CreateAsync(string userName, string password, string? email,
+    public async Task<RegistrationResult> CreateAsync(string userName, string password, string email,
                                                       string? displayName, CancellationToken cancel = default)
     {
         userName = userName.Trim();
-        email = string.IsNullOrWhiteSpace(email) ? null : email.Trim();
+        email = email?.Trim() ?? "";
         displayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
 
         if (!UserNamePattern.IsMatch(userName))
@@ -96,7 +141,13 @@ public sealed partial class AccountStore(IMongoDatabase database, IOptions<Accou
         {
             return new(null, $"口令至少 {options.Value.MinimumPasswordLength} 位。");
         }
-        if (email is not null && (!email.Contains('@') || email.Length < 5))
+        // 邮箱是必填项。页面上有 [Required] + [EmailAddress],这里是后端的兜底 ——
+        // 播种首个账号和将来任何非页面的建号路径都走这个方法,校验不能只长在表单上。
+        if (email.Length == 0)
+        {
+            return new(null, "请填写邮箱。它是你自助找回口令的唯一凭据。");
+        }
+        if (!email.Contains('@') || email.Length < 5)
         {
             return new(null, "邮箱格式不对。");
         }
@@ -106,7 +157,7 @@ public sealed partial class AccountStore(IMongoDatabase database, IOptions<Accou
             UserName = userName,
             NormalizedUserName = Normalize(userName),
             Email = email,
-            NormalizedEmail = email is null ? null : Normalize(email),
+            NormalizedEmail = Normalize(email),
             DisplayName = displayName,
             PasswordHash = ""
         };
@@ -120,10 +171,55 @@ public sealed partial class AccountStore(IMongoDatabase database, IOptions<Accou
         catch (MongoWriteException e) when (e.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
             // 唯一索引名直接告诉我们撞的是哪一条,不需要再回查一次。
-            return new(null, e.WriteError.Message.Contains("ux_account_email", StringComparison.Ordinal)
-                                 ? "这个邮箱已经注册过了。"
-                                 : "这个用户名已经被占用了。");
+            return new(null, e.WriteError.Message.Contains(EmailIndexName, StringComparison.Ordinal)
+                                 ? $"邮箱 {email} 已经注册过了。可以直接用它登录,或换一个邮箱。"
+                                 : $"用户名 {userName} 已经被占用了,换一个吧。");
         }
+    }
+
+    /// <summary>
+    /// 改资料(显示名与邮箱)。用户名不在其列 —— 它是登录标识,注册后不给改。
+    ///
+    /// **不换安全戳**:改个昵称或邮箱不是凭据变更,没有理由把人从所有设备上踢下线。
+    /// 但改完之后会话 cookie 里的 <c>name</c> 声明就旧了,调用方要用新账号重签一次,
+    /// 否则页面顶上还挂着旧名字直到下次登录。
+    ///
+    /// 改动直接写回传进来的实例,省得调用方再查一次库。
+    /// </summary>
+    public async Task<RegistrationResult> UpdateProfileAsync(IdentityAccount account, string email,
+                                                             string? displayName, CancellationToken cancel = default)
+    {
+        email = email?.Trim() ?? "";
+        displayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
+
+        if (email.Length == 0)
+        {
+            return new(null, "请填写邮箱。");
+        }
+        if (!email.Contains('@') || email.Length < 5)
+        {
+            return new(null, "邮箱格式不对。");
+        }
+
+        string normalized = Normalize(email);
+        try
+        {
+            await _accounts.UpdateOneAsync(a => a.Id == account.Id,
+                Builders<IdentityAccount>.Update
+                                       .Set(a => a.Email, email)
+                                       .Set(a => a.NormalizedEmail, normalized)
+                                       .Set(a => a.DisplayName, displayName),
+                cancellationToken: cancel);
+        }
+        catch (MongoWriteException e) when (e.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return new(null, $"邮箱 {email} 已经被另一个账号占用了。");
+        }
+
+        account.Email = email;
+        account.NormalizedEmail = normalized;
+        account.DisplayName = displayName;
+        return new(account, null);
     }
 
     /// <summary>

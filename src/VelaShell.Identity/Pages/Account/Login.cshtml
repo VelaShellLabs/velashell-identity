@@ -47,6 +47,14 @@
 <h1>登录</h1>
 <p class="lede">用你的 VelaShell 账号继续。</p>
 
+@if (Model.Reset)
+{
+    <p class="notice ok">
+        @await Html.PartialAsync("_Icon", "check")
+        <span>口令已重置,用新口令登录吧。其它设备都已被登出。</span>
+    </p>
+}
+
 @if (!string.IsNullOrEmpty(Model.Error))
 {
     <p class="notice error">
@@ -70,6 +78,7 @@
     <label>
         <span class="field-head">
             <span>口令</span>
+            <a asp-page="/Account/ForgotPassword">忘记口令?</a>
         </span>
         <span class="control">
             @await Html.PartialAsync("_Icon", "lock")

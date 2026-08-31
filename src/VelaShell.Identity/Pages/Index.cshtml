@@ -76,23 +76,67 @@ else
         </div>
 
         <section class="section">
-            <h2 class="section-title">账号信息</h2>
-            <ul class="kv">
-                <li><span class="k">用户名</span><span class="v"><code>@Model.Account.UserName</code></span></li>
-                <li>
-                    <span class="k">邮箱</span>
-                    <span class="v">
-                        @if (string.IsNullOrEmpty(Model.Account.Email))
-                        {
-                            <span class="chip chip-warn">未填写 · 口令丢了只能找管理员重置</span>
-                        }
-                        else
-                        {
-                            @Model.Account.Email
-                        }
+            <h2 class="section-title">账号资料</h2>
+
+            @* 邮箱自 2026-09-01 起是必填。这里仍要判空:改必填之前建的老账号库里还是 null。 *@
+            @if (string.IsNullOrEmpty(Model.Account.Email))
+            {
+                <p class="notice warn">
+                    @await Html.PartialAsync("_Icon", "alert")
+                    <span>
+                        这个账号还没有邮箱 —— 它是你注册时还不需要填的年代留下的。
+                        <strong>补上之后才能自助找回口令</strong>,否则口令一丢只能找管理员重置。
                     </span>
-                </li>
-            </ul>
+                </p>
+            }
+            @if (!string.IsNullOrEmpty(Model.ProfileError))
+            {
+                <p class="notice error">
+                    @await Html.PartialAsync("_Icon", "alert")
+                    <span>@Model.ProfileError</span>
+                </p>
+            }
+            @if (Model.ProfileSaved)
+            {
+                <p class="notice ok">
+                    @await Html.PartialAsync("_Icon", "check")
+                    <span>资料已保存。改资料不影响登录状态,其它设备不会被登出。</span>
+                </p>
+            }
+
+            <form method="post" asp-page-handler="Profile">
+                <label>
+                    <span>用户名</span>
+                    <span class="control">
+                        @await Html.PartialAsync("_Icon", "user")
+                        <input value="@Model.Account.UserName" disabled />
+                    </span>
+                    <span class="hint">登录标识,注册后不能改 —— 它同时是别人认出你的名字</span>
+                </label>
+
+                <div class="two-col">
+                    <label>
+                        <span>显示名</span>
+                        <span class="control">
+                            @await Html.PartialAsync("_Icon", "smile")
+                            <input asp-for="ProfileDisplayName" autocomplete="nickname" placeholder="留空则显示用户名" />
+                        </span>
+                    </label>
+                    <label>
+                        <span>邮箱</span>
+                        <span class="control">
+                            @await Html.PartialAsync("_Icon", "mail")
+                            <input asp-for="ProfileEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
+                        </span>
+                        <span class="hint">找回口令用,也可以代替用户名登录</span>
+                    </label>
+                </div>
+
+                <div class="actions-right">
+                    <span class="hint">邮箱在全站唯一。</span>
+                    <button type="submit">保存资料</button>
+                </div>
+            </form>
         </section>
 
         <section class="section">
@@ -133,7 +177,7 @@ else
                 </p>
             }
 
-            <form method="post">
+            <form method="post" asp-page-handler="Password">
                 <label>
                     <span>当前口令</span>
                     <span class="control">

@@ -153,7 +153,7 @@ public static class ConnectEndpoints
             [Claims.Name] = account.DisplayName ?? account.UserName,
             [Claims.PreferredUsername] = account.UserName
         };
-        if (context.User.HasScope(Scopes.Email) && account.Email is not null)
+        if (context.User.HasScope(Scopes.Email) && !string.IsNullOrEmpty(account.Email))
         {
             claims[Claims.Email] = account.Email;
             claims[Claims.EmailVerified] = false;
@@ -171,7 +171,8 @@ public static class ConnectEndpoints
                 // 安全戳跟着授权码与刷新令牌走(不进访问令牌,见 GetDestinations),
                 // 续期时用它判断"这张刷新令牌是不是改口令之前发的"。
                 .SetClaim(IdentityClaims.SecurityStamp, account.SecurityStamp);
-        if (account.Email is not null)
+        // 判空是为了改必填之前遗留的老账号:库里那几条的 Email 仍然是 null。
+        if (!string.IsNullOrEmpty(account.Email))
         {
             identity.SetClaim(Claims.Email, account.Email);
         }
