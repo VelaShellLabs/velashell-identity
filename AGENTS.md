@@ -49,9 +49,19 @@ VelaShell 生态的 OIDC 授权服务器(OpenIddict + MongoDB)。账号、登录
 ### 跑起来
 
 ```bash
-docker compose up -d          # compose 自带 MongoDB,能独立跑
+pwsh ./build/Publish-Image.ps1   # 仓库里没有 Dockerfile,镜像是 SDK 直接出的
+docker compose up -d             # compose 只跑不造;compose 自带 MongoDB,能独立跑
 dotnet build VelaShell.Identity.slnx
 ```
+
+镜像的一切(名字、标签、基础镜像、非 root 用户、暴露端口)只在
+`src/VelaShell.Identity/VelaShell.Identity.csproj` 的「容器」段里定义。
+改了代码不重跑发布脚本的话,`docker compose up -d` 起的还是旧镜像。
+动那一段之前先读 README 里「SDK 容器发布的两个默认值」——
+`LocalRegistry` 留空会把镜像发去 WSL 的容器存储,`ContainerUser` 不写则镜像是 root 跑的。
+导出与推 Harbor:`-Archive` / `-Push`,见 `build/Publish-Image.ps1` 的帮助。
+镜像名是 `velashell/identity` —— 第一段是 Harbor 上的项目名(`harbor.easilynet.top/velashell`),
+认证与市场共用它,所以不能改成单段名字。部署机用 `.env` 的 `IDENTITY_IMAGE` 指向远端镜像。
 
 ### ⚠️ 三个"改了就出事"的值
 

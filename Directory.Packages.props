@@ -5,15 +5,14 @@
   <ItemGroup>
     <!-- OIDC 服务端。7.x 是稳定版,8.0 仍在 preview —— 但这里是整个生态的**信任根**,
          版本选择应当是一次明确的决定,而不是每次还原的意外。与拆分前保持一致。 -->
-    <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.24.2-preview.1" />
-    <PackageVersion Include="OpenIddict.AspNetCore" Version="8.0.0-preview.2.26365.61" />
-    <PackageVersion Include="OpenIddict.MongoDb" Version="8.0.0-preview.2.26365.61" />
+    <PackageVersion Include="OpenIddict.AspNetCore" Version="8.0.0-preview.4.26456.66" />
+    <PackageVersion Include="OpenIddict.MongoDb" Version="8.0.0-preview.4.26456.66" />
   </ItemGroup>
   <ItemGroup>
     <!-- 发信(找回口令)。不用 System.Net.Mail.SmtpClient:它与真实服务商的 STARTTLS
          协商经常谈不拢,微软自己的文档也不推荐新代码用它。 -->
     <PackageVersion Include="MailKit" Version="4.17.0" />
-    <PackageVersion Include="MongoDB.Driver" Version="3.11.0" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.11.2" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.1-dev-02312" />
   </ItemGroup>
 </Project>

@@ -22,12 +22,76 @@ VelaShell 生态的 **OIDC 授权服务器**(OpenIddict + MongoDB)。账号、�
 ## 跑起来
 
 ```powershell
-cp .env.example .env      # 至少改掉 MONGO_ROOT_PASSWORD
+cp .env.example .env                  # 至少改掉 MONGO_ROOT_PASSWORD
+pwsh ./build/Publish-Image.ps1        # 出镜像 velashell/identity:latest
 docker compose up -d
 ```
 
+**本仓库没有 Dockerfile** —— 镜像由 .NET SDK 的容器发布直接产出
+(`dotnet publish -t:PublishContainer`),compose 只负责跑,不负责造。
+所以改了代码之后要**先重跑一遍发布脚本**,`docker compose up -d` 不会替你重新构建。
+
+镜像的名字、标签、基础镜像、非 root 用户与暴露端口全写在
+`src/VelaShell.Identity/VelaShell.Identity.csproj` 的「容器」段里,只有那一处。
+
 本仓库的 compose **自带一个 MongoDB**,所以它能独立跑起来 —— 开发认证服务不必先起一整套业务系统。
 生产上把 `MONGO_CONNECTION` 指向共享副本集即可(库名仍是 `velashell-identity`)。
+
+搬到别的机器上部署:
+
+```powershell
+pwsh ./build/Publish-Image.ps1 -Archive   # build/velashell-identity.tar.gz
+```
+
+目标机上 `docker load -i velashell-identity.tar.gz` 再 `docker compose up -d`。
+只出包、不碰本机镜像库的话加 `-SkipLocal`,那条路连 Docker 守护进程都不需要。
+
+推自建仓库(Harbor 等):
+
+```powershell
+docker login harbor.easilynet.top
+pwsh ./build/Publish-Image.ps1 -Push            # → harbor.easilynet.top/velashell/identity:latest
+pwsh ./build/Publish-Image.ps1 -Push -Tag 2026-09-12   # 想并存多个版本时带标签
+```
+
+`-Registry` 默认就是 `harbor.easilynet.top`,推别处才需要传;**光有默认值不会推,
+必须给 `-Push`** —— 否则日常的本机发布会顺手推一趟远端。
+
+⚠️ 镜像名的第一段 `velashell` 是 **Harbor 上的项目名**:Harbor 只认已经建好的项目,
+也不会自动创建,单段的名字(旧的 `velashell-identity`)会被直接拒。
+Harbor 用自签证书的话,CA 要装进本机信任库 —— SDK 自己发 HTTPS 请求,
+不认 Docker 守护进程那份 `insecure-registries`。
+
+目标机上不重新构建,直接拉:在 `.env` 里写
+
+```ini
+IDENTITY_IMAGE=harbor.easilynet.top/velashell/identity:latest
+```
+
+然后 `docker compose pull && docker compose up -d`。compose 里两处 `image:` 用的是
+同一个变量(`identity` 与 `identity-keys-init` 必须是同一个镜像),改一处就够。
+
+⚠️ 这里**不要**用 `docker save` 导镜像:SDK 已经会直接写 tar.gz,
+多绕一层还得先有个跑着的守护进程。
+
+## ⚠️ SDK 容器发布的两个默认值
+
+改回默认会静默出问题,动 csproj 的「容器」段之前先读这两条:
+
+- **`LocalRegistry` 不能留空。** 留空是"自动探测本机容器运行时"。装了 WSL 容器支持的
+  Windows 上它可能挑中 WSL 的容器存储(`wslc`)而不是 Docker Desktop ——
+  发布报成功,但 `docker images` 里查无此人,compose 起不来。
+- **`ContainerUser` 必须显式写。** 只要显式指定了 `ContainerBaseImage`,SDK 就认定
+  "这不是微软的默认镜像",于是**不再自动设置非 root 用户** —— 不写就是 root 跑的。
+
+还有一条连带的:SDK 容器发布**没有 `RUN`,也就没法 `chown`**。
+`identity-keys` 这个命名卷首次挂载会被 Docker 建成 root 所有,非 root 的 `app` 写不进去,
+签名密钥一条都落不下。compose 里因此有个 `identity-keys-init` 服务:
+拿**同一个镜像**以 root 跑一次 `chown` 就退出,不额外引入别的镜像。
+
+`ContainerBaseImage` 里的运行时**不能比编译用的 SDK 旧** —— 运行时只能向前滚补丁,
+旧运行时跑新 SDK 编出来的程序集会直接"找不到框架"。换基础镜像前先
+`docker run --rm <镜像> ls /usr/share/dotnet/shared/Microsoft.AspNetCore.App` 确认一眼。
 
 ```bash
 dotnet build VelaShell.Identity.slnx

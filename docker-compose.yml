@@ -14,7 +14,20 @@ services:
     image: mongo:8
     container_name: identity-mongo
     restart: unless-stopped
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+    # 开了鉴权的副本集必须有 keyFile —— 单节点也一样,没有它 mongod 直接拒绝启动
+    # ("security.keyFile is required when authorization is enabled with replica sets")。
+    # 就地生成一把并留在数据卷里:重启后仍是同一把,与数据同生共死。
+    entrypoint:
+      - bash
+      - -c
+      - |
+        KEY=/data/db/replset.key
+        if [ ! -s "$$KEY" ]; then
+          head -c 756 /dev/urandom | base64 | tr -d '\n' > "$$KEY"
+        fi
+        chmod 400 "$$KEY"
+        chown mongodb:mongodb "$$KEY"
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile "$$KEY"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-identity}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-change-me-please}
@@ -25,26 +38,47 @@ services:
     healthcheck:
       # OpenIddict 的部分操作要事务,而事务要求副本集 —— 单节点副本集就够,
       # 但必须真的 initiate 过,否则驱动会一直处在 "Type: Unknown" 的状态。
+      # 成员地址必须写 mongo:27017 而不是 localhost:27017 —— 驱动按 rs 配置里的地址
+      # 重新建连,写 localhost 的话 identity 容器会去连它自己,表现为启动时卡死在连库。
       test: >
         mongosh --quiet
         -u ${MONGO_ROOT_USER:-identity} -p ${MONGO_ROOT_PASSWORD:-change-me-please}
         --authenticationDatabase admin
-        --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+        --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
       interval: 10s
       timeout: 10s
       retries: 12
       start_period: 20s
 
+  # 密钥卷的属主。镜像由 .NET SDK 产出(没有 Dockerfile,也就没有 RUN/chown 那一步),
+  # 而容器以非 root 的 app(uid 1654)运行;命名卷第一次挂载时 Docker 会把它建成 root 所有,
+  # 于是签名密钥一条都写不进去。这里拿**同一个镜像**以 root 跑一次 chown 就退出 ——
+  # 不额外引入 busybox 之类的镜像,部署到别处时也不必多传一个 tar。
+  identity-keys-init:
+    image: ${IDENTITY_IMAGE:-velashell/identity:latest}
+    container_name: velashell-identity-keys-init
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown -R 1654:1654 /keys"]
+    volumes:
+      - identity-keys:/keys
+    restart: "no"
+
   identity:
-    build:
-      context: .
-      dockerfile: build/identity.Dockerfile
-    image: velashell-identity:local
+    # 镜像不再由 compose 构建:`dotnet publish -t:PublishContainer` 产出它,
+    # 见 build/Publish-Image.ps1。没先发布过的话这里会去 Docker Hub 拉一个不存在的镜像。
+    #
+    # 默认值是**本机发布出来的那个名字**,开发机上 `docker compose up -d` 直接命中。
+    # 从 Harbor 拉着跑的机器在 .env 里写:
+    #   IDENTITY_IMAGE=harbor.easilynet.top/velashell/identity:latest
+    # 两处 image 都用同一个变量 —— keys-init 必须与 identity 是同一个镜像(见上面的说明)。
+    image: ${IDENTITY_IMAGE:-velashell/identity:latest}
     container_name: velashell-identity
     restart: unless-stopped
     depends_on:
       mongo:
         condition: service_healthy
+      identity-keys-init:
+        condition: service_completed_successfully
     environment:
       - TZ=Asia/Chongqing
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
