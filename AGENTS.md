@@ -92,3 +92,7 @@ dotnet build VelaShell.Identity.slnx
 
 `README.md`、`AGENTS.md`。下游怎么接入见各自仓库的 README;
 拆分前的历史说明在 velashell-markets 的 `docs/identity-integration.md`。
+
+### 提交约束
+
+- **所有提交信息与 PR 描述都不要附加 Claude Code 等 AI 工具的作者信息** —— 不加 `Co-Authored-By: Claude …` 行,也不加 `🤖 Generated with Claude Code` 之类的署名。VelaShellLabs 下所有仓库一致适用。
