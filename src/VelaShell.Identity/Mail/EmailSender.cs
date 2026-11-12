@@ -1,3 +1,4 @@
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Options;
@@ -50,7 +51,7 @@ public sealed class EmailSender(IOptions<MailOptions> options, ILogger<EmailSend
             {
                 await client.AuthenticateAsync(mail.UserName, mail.Password, cancel);
             }
-            await client.SendAsync(message, cancel);
+            await client.SendAsync(new SendRequest(message), cancel);
             await client.DisconnectAsync(true, cancel);
             return true;
         }
